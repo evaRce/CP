@@ -109,17 +109,23 @@ void * print_progress(void * ptr){
     int parcial = 0;
     long porcentaje = 0;
     pthread_mutex_lock(&args->shared->mutex_revisado);
-    while(args->shared->resuelto == 0){ //
+    puts("EYYY");
+    
+    while(args->shared->resuelto == 0){ 
+        printf("resuelto %d\n", args->shared->resuelto);
         pthread_cond_wait(&args->shared->cond, &args->shared->mutex_revisado);
         if(actualizar(args->shared->revisado, total, parcial)==1){
             barra[parcial] = '#';
             barra[parcial+1] = '\0';
             porcentaje = ((float) args->shared->revisado/total) * 100;
-            printf("\rProgress: [%ld%%] %s",porcentaje ,barra);
+            printf("\r\t\t\tProgress: [%ld%%] %s",porcentaje ,barra);
             fflush(stdout);
             parcial++;
         }
     }
+    if(args->shared->resuelto == 1)
+        puts("despues de while");
+    printf("salio del while\n");
     pthread_mutex_unlock(&args->shared->mutex_revisado);
     printf("\n");
     return NULL;
@@ -137,9 +143,9 @@ void *break_pass(void *ptr) {
     unsigned char *pass = malloc((PASS_LEN + 1) * sizeof(char));//shared->solucion
 
     for(i = 0; i < args->shared->bound; i++) {
-            if(i == 0 || total == pow(10,-9)){
+            if(i == 0 || total == pow(10,6)){
+                printf("\r Casos : %ld", cont);
                 t1 = microsegundos();
-                printf("\rCasos= %ld", cont);
                 fflush(stdout);
                 cont = 0;
             }
@@ -150,14 +156,20 @@ void *break_pass(void *ptr) {
             hex_to_num(argv1, md5_num);
 
             if(0 == memcmp(res, md5_num, MD5_DIGEST_LENGTH)){
+                printf("entre\n");
                 args->shared->resuelto = 1;
+                puts("modificado");
                 strcpy(args->shared->solucion,(const char *) pass);
                 free(pass);
                 break; // Found it!
             } 
+
+            t2 = microsegundos();
+            total = t2 -t1;
+
             parcial++; 
             cont++;
-            if(parcial % 100 == 0){ 
+            if(parcial % (long)total == 0){ 
                 pthread_mutex_lock(&args->shared->mutex_revisado);
                 args->shared->revisado = args->shared->revisado + parcial; //revisado: contador de casos probados
                 pthread_cond_signal(&args->shared->cond);
@@ -165,10 +177,9 @@ void *break_pass(void *ptr) {
                 parcial = 0;
             }
         
-            t2 = microsegundos();
-            total = t2 -t1;
+            
     }
-
+    puts("salio break");
     return NULL;
 }
 
@@ -244,7 +255,6 @@ int main(int argc, char *argv[]) {
         printf("Use: %s string\n", argv[0]); //error si usas menos de 2 arg
         exit(0);
     }
-    printf("HOLA\n");
     struct shared shared;
     struct thread_info *thrs;
     int num_threads = 2;
@@ -260,3 +270,7 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+
+/* COMENTARIOS
+    resuelto no cambia a 1;
+*/
