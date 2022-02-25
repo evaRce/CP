@@ -5,6 +5,8 @@
 #include <string.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <sys/time.h>
+#include <math.h>
 
 #define PASS_LEN 6
 
@@ -29,6 +31,13 @@ struct thread_info{
     struct args * args;
 };
 
+
+double microsegundos() {
+    struct timeval t;
+    if (gettimeofday(&t, NULL) < 0)
+        return 0.0;
+    return (t.tv_usec + t.tv_sec * 1000000.0);
+}
 
 long ipow(long base, int exp){
     long res = 1;
@@ -120,16 +129,20 @@ void * print_progress(void * ptr){
 void *break_pass(void *ptr) {
     struct args * args = ptr;
     char *argv1 = args->shared->original;
-    long i, parcial = 0;
-    time_t t1, t2;
+    long i, parcial = 0,cont = 0;
+    double t1, t2, total;
 
     unsigned char md5_num[MD5_DIGEST_LENGTH];
     unsigned char res[MD5_DIGEST_LENGTH];
     unsigned char *pass = malloc((PASS_LEN + 1) * sizeof(char));//shared->solucion
 
     for(i = 0; i < args->shared->bound; i++) {
-            t1 = time(NULL);
-
+            if(i == 0 || total == pow(10,-9)){
+                t1 = microsegundos();
+                printf("\rCasos= %ld", cont);
+                fflush(stdout);
+                cont = 0;
+            }
             long_to_pass(i, pass);
 
             MD5(pass, PASS_LEN, res);
@@ -145,17 +158,15 @@ void *break_pass(void *ptr) {
             parcial++; 
             cont++;
             if(parcial % 100 == 0){ 
-                //pthread_mutex_lock(&args->shared->mutex_revisado);
+                pthread_mutex_lock(&args->shared->mutex_revisado);
                 args->shared->revisado = args->shared->revisado + parcial; //revisado: contador de casos probados
                 pthread_cond_signal(&args->shared->cond);
-                //pthread_mutex_unlock(&args->shared->mutex_revisado);
+                pthread_mutex_unlock(&args->shared->mutex_revisado);
                 parcial = 0;
             }
         
-            /*t2 = time(NULL);
-            t1 - t2 =total
-                total==1se 
-        }*/
+            t2 = microsegundos();
+            total = t2 -t1;
     }
 
     return NULL;
@@ -233,6 +244,7 @@ int main(int argc, char *argv[]) {
         printf("Use: %s string\n", argv[0]); //error si usas menos de 2 arg
         exit(0);
     }
+    printf("HOLA\n");
     struct shared shared;
     struct thread_info *thrs;
     int num_threads = 2;
