@@ -9,12 +9,15 @@
 #include <math.h>
 
 #define PASS_LEN 6
+#define NUM_THREADS 3
 
 struct shared{
     int resuelto;
     char * original; //passw q se le pasa
     char * solucion; //passw estimada, q deberia salir
     long bound;
+    long bound_inf; //limite inferior
+    long bound_sup; //limite superior
     long revisado;
     pthread_mutex_t mutex_revisado;
     pthread_mutex_t mutex_resuelto;
@@ -138,7 +141,7 @@ void *break_pass(void *ptr) {
     unsigned char res[MD5_DIGEST_LENGTH];
     unsigned char *pass = malloc((PASS_LEN + 1) * sizeof(char));//shared->solucion
 
-    for(i = 0; i < args->shared->bound; i++) {
+    for(i = args->shared->bound_inf; i < args->shared->bound_sup; i++) {
             if(i == 0 || total == pow(10,6)){
                 printf("\rCasos : %ld", cont);
                 t1 = microsegundos();
@@ -188,7 +191,7 @@ struct thread_info * start_threads(struct shared * shared, int num_threads){
 		printf("Not enough memory\n");		//Mensaje de error
 		exit(1);							//Salida
 	}
-
+    
     for(i = 0; i < num_threads; i++){
         if( i == 0){     
             threads[i].args = malloc(sizeof(struct args));
@@ -199,9 +202,11 @@ struct thread_info * start_threads(struct shared * shared, int num_threads){
                 exit(1);									//Salida
             }   
         } else {
+            //poner limites: inferior y superior
             threads[i].args = malloc(sizeof(struct args));
             threads[i].args->thread_num = i;
             threads[i].args->shared = shared;
+
             if(0 != pthread_create(&threads[i].id, NULL, break_pass, threads[i].args)){
                 printf("Could not create thread #%d", i);	//Mensaje de error
                 exit(1);									//Salida
@@ -212,9 +217,10 @@ struct thread_info * start_threads(struct shared * shared, int num_threads){
     return threads;
 }
 
-
 void init_shared(struct shared * shared, char * passw){
     shared->bound = ipow(26, PASS_LEN); // we have passwords of PASS_LEN
+    shared->bound_inf = 0;
+    shared->bound_sup = 0;
     shared->resuelto = 0;
     shared->revisado = 0;
     shared->original = malloc(sizeof(char *) * 33); // hash/0 (33 caracteres)
@@ -254,7 +260,7 @@ int main(int argc, char *argv[]) {
     }
     struct shared shared;
     struct thread_info *thrs;
-    int num_threads = 2;
+    int num_threads = NUM_THREADS;
 
     //Init shared
     init_shared(&shared, argv[1]);
@@ -267,4 +273,3 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
