@@ -17,6 +17,7 @@ struct shared{
     long bound;
     long revisado;
     pthread_mutex_t mutex_revisado;
+    pthread_mutex_t mutex_resuelto;
     pthread_cond_t cond;
 };
 
@@ -100,7 +101,6 @@ int actualizar(int progreso, int total, int parcial){
     }
 } 
 
-
 void * print_progress(void * ptr){
     struct args * args = ptr;
     long total = args->shared->bound;
@@ -109,23 +109,19 @@ void * print_progress(void * ptr){
     int parcial = 0;
     long porcentaje = 0;
     pthread_mutex_lock(&args->shared->mutex_revisado);
-    puts("EYYY");
     
     while(args->shared->resuelto == 0){ 
-        printf("resuelto %d\n", args->shared->resuelto);
         pthread_cond_wait(&args->shared->cond, &args->shared->mutex_revisado);
         if(actualizar(args->shared->revisado, total, parcial)==1){
             barra[parcial] = '#';
             barra[parcial+1] = '\0';
             porcentaje = ((float) args->shared->revisado/total) * 100;
-            printf("\r\t\t\tProgress: [%ld%%] %s",porcentaje ,barra);
+            printf("\r\t\t\tProgress [%ld%%] %s",porcentaje ,barra);
             fflush(stdout);
             parcial++;
         }
     }
-    if(args->shared->resuelto == 1)
-        puts("despues de while");
-    printf("salio del while\n");
+
     pthread_mutex_unlock(&args->shared->mutex_revisado);
     printf("\n");
     return NULL;
@@ -144,7 +140,7 @@ void *break_pass(void *ptr) {
 
     for(i = 0; i < args->shared->bound; i++) {
             if(i == 0 || total == pow(10,6)){
-                printf("\r Casos : %ld", cont);
+                printf("\rCasos : %ld", cont);
                 t1 = microsegundos();
                 fflush(stdout);
                 cont = 0;
@@ -156,10 +152,11 @@ void *break_pass(void *ptr) {
             hex_to_num(argv1, md5_num);
 
             if(0 == memcmp(res, md5_num, MD5_DIGEST_LENGTH)){
-                printf("entre\n");
+                pthread_mutex_lock(&args->shared->mutex_resuelto);
                 args->shared->resuelto = 1;
-                puts("modificado");
+                pthread_cond_signal(&args->shared->cond);
                 strcpy(args->shared->solucion,(const char *) pass);
+                pthread_mutex_unlock(&args->shared->mutex_resuelto);
                 free(pass);
                 break; // Found it!
             } 
@@ -167,19 +164,17 @@ void *break_pass(void *ptr) {
             t2 = microsegundos();
             total = t2 -t1;
 
-            parcial++; 
+            parcial++; //contador de casos probados
             cont++;
-            if(parcial % (long)total == 0){ 
+            if(parcial % 260 == 0){ 
                 pthread_mutex_lock(&args->shared->mutex_revisado);
-                args->shared->revisado = args->shared->revisado + parcial; //revisado: contador de casos probados
+                args->shared->revisado = args->shared->revisado + parcial; //revisado: contador de casos probados q se reiniciara
                 pthread_cond_signal(&args->shared->cond);
                 pthread_mutex_unlock(&args->shared->mutex_revisado);
                 parcial = 0;
             }
         
-            
     }
-    puts("salio break");
     return NULL;
 }
 
@@ -226,8 +221,9 @@ void init_shared(struct shared * shared, char * passw){
     shared->solucion = malloc(sizeof(char *) * (PASS_LEN+1)); //passw/0 (7caracteres)
     strcpy(shared->original, passw);
 
-    pthread_cond_init(&shared->cond, NULL);
     pthread_mutex_init(&shared->mutex_revisado, NULL);
+    pthread_mutex_init(&shared->mutex_resuelto, NULL);
+    pthread_cond_init(&shared->cond, NULL);
 }
 
 
@@ -243,6 +239,7 @@ void wait(struct shared * shared, struct thread_info *threads, int num_threads) 
     }
 
     pthread_mutex_destroy(&shared->mutex_revisado);
+    pthread_mutex_destroy(&shared->mutex_resuelto);
     pthread_cond_destroy(&shared->cond);
 
     free(threads);  //libera memoria

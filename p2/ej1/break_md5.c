@@ -15,6 +15,7 @@ struct shared{
     long bound;
     long revisado;
     pthread_mutex_t mutex_revisado;
+    pthread_mutex_t mutex_resuelto;
     pthread_cond_t cond;
 };
 
@@ -100,7 +101,7 @@ void * print_progress(void * ptr){
     int parcial = 0;
     long porcentaje = 0;
     pthread_mutex_lock(&args->shared->mutex_revisado);
-    while(args->shared->resuelto == 0){ //
+    while(args->shared->resuelto == 0){ 
         pthread_cond_wait(&args->shared->cond, &args->shared->mutex_revisado);
         if(actualizar(args->shared->revisado, total, parcial)==1){
             barra[parcial] = '#';
@@ -135,13 +136,16 @@ void *break_pass(void *ptr) {
             hex_to_num(argv1, md5_num);
 
             if(0 == memcmp(res, md5_num, MD5_DIGEST_LENGTH)){
+                pthread_mutex_lock(&args->shared->mutex_resuelto);
                 args->shared->resuelto = 1;
+                pthread_cond_signal(&args->shared->cond);
                 strcpy(args->shared->solucion,(const char *) pass);
+                pthread_mutex_unlock(&args->shared->mutex_resuelto);
                 free(pass);
                 break; // Found it!
             } 
             parcial++; 
-            if(parcial % 26 == 0){ 
+            if(parcial % 260 == 0){ 
                 pthread_mutex_lock(&args->shared->mutex_revisado);
                 args->shared->revisado = args->shared->revisado + parcial; //revisado: contador de casos probados
                 pthread_cond_signal(&args->shared->cond);
@@ -150,7 +154,6 @@ void *break_pass(void *ptr) {
             }
 
     }
-
     return NULL;
 }
 
@@ -197,8 +200,9 @@ void init_shared(struct shared * shared, char * passw){
     shared->solucion = malloc(sizeof(char *) * (PASS_LEN+1)); //passw/0 (7caracteres)
     strcpy(shared->original, passw);
 
-    pthread_cond_init(&shared->cond, NULL);
     pthread_mutex_init(&shared->mutex_revisado, NULL);
+    pthread_mutex_init(&shared->mutex_resuelto, NULL);
+    pthread_cond_init(&shared->cond, NULL);
 }
 
 
@@ -214,6 +218,7 @@ void wait(struct shared * shared, struct thread_info *threads, int num_threads) 
     }
 
     pthread_mutex_destroy(&shared->mutex_revisado);
+    pthread_mutex_destroy(&shared->mutex_resuelto);
     pthread_cond_destroy(&shared->cond);
 
     free(threads);  //libera memoria
