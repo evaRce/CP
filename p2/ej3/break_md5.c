@@ -144,28 +144,26 @@ void *break_pass(void *ptr) {
     struct args * args = ptr;
     char *argv1 = args->shared->original;
     long i, parcial = 0,cont = 0;
-    long casos_a_probar = 1000, casos_a_probar_local = 0;
+    long casos_a_probar = 1000, casos_a_probar_local = 0, casos_restantes = args->shared->bound;
     double t1, t2, total;
 
     unsigned char md5_num[MD5_DIGEST_LENGTH];
     unsigned char res[MD5_DIGEST_LENGTH];
     unsigned char *pass = malloc((PASS_LEN + 1) * sizeof(char));//shared->solucion
-
-
     while(1){
         pthread_mutex_lock(&args->shared->mutex_cont_compartido);
-        if(args->shared->cont_compartido == casos_a_probar){
+        if(casos_restantes == 0){  //cuando no hay mas posibilidades de pruebas
             pthread_mutex_unlock(&args->shared->mutex_cont_compartido);
+            break;
         }
-
         casos_a_probar_local = args->shared->cont_compartido;  //rango inferior
         args->shared->cont_compartido = min(casos_a_probar, args->shared->bound - args->shared->cont_compartido); //minimo entre casos_a_probar y lo que queda
+        casos_restantes = args->shared->bound - args->shared->cont_compartido;
         //rangos del thread
         args->shared->bound_inf = casos_a_probar_local;
         args->shared->bound_sup = casos_a_probar_local + args->shared->cont_compartido - 1;
         pthread_mutex_unlock(&args->shared->mutex_cont_compartido);
     }
-
 
     for(i = args->shared->bound_inf; i < args->shared->bound_sup; i++) {
         if(args->shared->resuelto == 1){ //avisar a otros threads q la passw ha sido encontrada
