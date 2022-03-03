@@ -155,13 +155,12 @@ void *break_pass(void *ptr) {
     unsigned char res[MD5_DIGEST_LENGTH];
     unsigned char *pass = malloc((PASS_LEN + 1) * sizeof(char));//shared->solucion
 
-    while(args->shared->resuelto == 0){
+    while(1){
         while(salida == 0){
             pthread_mutex_lock(&args->shared->mutex_cont_compartido);
-            //HACER ALGO PARA Q CUANDO C/THREAD TENGA SU RANGO SALGA DEL BUCLE
             //cuando no hay mas posibilidades de pruebas para los threads q intenten coger un rango
             if(casos_restantes == 0){  
-                printf("\t\tno puedes reservar un rango\n");
+                printf("No puedes reservar un rango\n");
                 pthread_mutex_unlock(&args->shared->mutex_cont_compartido);
                 break;
             }
@@ -180,7 +179,6 @@ void *break_pass(void *ptr) {
             //rangos del thread
             args->shared->bound_inf = casos_a_probar_local;
             args->shared->bound_sup = casos_a_probar_local + args->shared->cont_compartido - 1;
-            //printf("thread%d rango_inf=%ld, Rango_sup=%ld\n", args->thread_num, args->shared->bound_inf, args->shared->bound_sup);
             salida = 1;
             pthread_mutex_unlock(&args->shared->mutex_cont_compartido);
         }
@@ -204,7 +202,6 @@ void *break_pass(void *ptr) {
             hex_to_num(argv1, md5_num);
 
             if(0 == memcmp(res, md5_num, MD5_DIGEST_LENGTH)){
-                //printf("encontrada por thread%d\n",args->thread_num);
                 pthread_mutex_lock(&args->shared->mutex_resuelto);
                 args->shared->resuelto = 1;
                 pthread_cond_signal(&args->shared->cond);
@@ -330,6 +327,5 @@ int main(int argc, char *argv[]) {
 
     //wait
     wait(&shared, thrs, num_threads);
-    puts("termina");
     return 0;
 }
