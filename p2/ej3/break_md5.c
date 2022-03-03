@@ -9,7 +9,7 @@
 #include <math.h>
 
 #define PASS_LEN 6
-#define NUM_THREADS 3
+#define NUM_THREADS 6
 
 struct shared{
     int resuelto;
@@ -99,7 +99,7 @@ void hex_to_num(char *str, unsigned char *hex) {
 int actualizar(int progreso, int total, int parcial){
     int veces = 100;
     int trigger = total / veces;
-    if(progreso >= (trigger * (parcial))){
+    if(progreso <= (parcial/trigger)){
         return 1;
     } else {
         return 0;
@@ -117,15 +117,14 @@ void * print_progress(void * ptr){
     
     while(args->shared->resuelto == 0){ 
         pthread_cond_wait(&args->shared->cond, &args->shared->mutex_revisado);
-        if(actualizar(args->shared->revisado, total, parcial)==1){
+        if(actualizar(parcial, total,args->shared->cont_compartido)==1){
             barra[parcial] = '#';
             barra[parcial+1] = '\0';
-            porcentaje = ((float) args->shared->revisado/total) * 100;
+            porcentaje = ((float) args->shared->cont_compartido/total) * 100;
             printf("\r\t\t\tProgress [%ld%%] %s",porcentaje ,barra);
             fflush(stdout);
             parcial++;
-            if(parcial==101)
-                puts("ERROR de barra");
+
         }
     }
 
@@ -146,16 +145,19 @@ void *break_pass(void *ptr) {
     struct args * args = ptr;
     char *argv1 = args->shared->original;
     long i, parcial = 0, cont = 0;
-    long casos_a_probar = 100000, 
+    long casos_a_probar = 1000,
         casos_a_probar_local = 0, 
         casos_restantes = args->shared->bound;
+    //long casos_a_probar_random = ;
     double t1, t2, total;
     int salida=0;
     unsigned char md5_num[MD5_DIGEST_LENGTH];
     unsigned char res[MD5_DIGEST_LENGTH];
     unsigned char *pass = malloc((PASS_LEN + 1) * sizeof(char));//shared->solucion
 
-    while(1){
+    hex_to_num(argv1, md5_num);
+
+    while(args->shared->resuelto == 0){
         while(salida == 0){
             pthread_mutex_lock(&args->shared->mutex_cont_compartido);
             //cuando no hay mas posibilidades de pruebas para los threads q intenten coger un rango
@@ -164,21 +166,17 @@ void *break_pass(void *ptr) {
                 pthread_mutex_unlock(&args->shared->mutex_cont_compartido);
                 break;
             }
-            if(args->shared->cont_compartido == 0){
-                casos_a_probar_local = args->shared->cont_compartido;
-            }else{
-                casos_a_probar_local = args->shared->bound_sup+1;
-            }
-            
+
+            casos_a_probar_local = args->shared->cont_compartido;
             //minimo entre casos_a_probar y lo que queda
-            args->shared->cont_compartido = min(casos_a_probar, args->shared->bound - args->shared->cont_compartido); 
+            args->shared->cont_compartido += min(casos_a_probar, args->shared->bound - args->shared->cont_compartido);
 
             //casos q van quedando
-            casos_restantes = casos_restantes - args->shared->cont_compartido;
+            casos_restantes = args->shared->bound - args->shared->cont_compartido;
 
             //rangos del thread
             args->shared->bound_inf = casos_a_probar_local;
-            args->shared->bound_sup = casos_a_probar_local + args->shared->cont_compartido - 1;
+            args->shared->bound_sup = args->shared->cont_compartido;
             salida = 1;
             pthread_mutex_unlock(&args->shared->mutex_cont_compartido);
         }
@@ -199,7 +197,7 @@ void *break_pass(void *ptr) {
 
             MD5(pass, PASS_LEN, res);
 
-            hex_to_num(argv1, md5_num);
+
 
             if(0 == memcmp(res, md5_num, MD5_DIGEST_LENGTH)){
                 pthread_mutex_lock(&args->shared->mutex_resuelto);
@@ -216,7 +214,7 @@ void *break_pass(void *ptr) {
 
             parcial++; //contador de casos probados
             cont++;
-            if(parcial % 260 == 0){ 
+            if(parcial % 2600 == 0){
                 pthread_mutex_lock(&args->shared->mutex_revisado);
                 args->shared->revisado = args->shared->revisado + parcial; //revisado: contador de casos probados q se reiniciara
                 pthread_cond_signal(&args->shared->cond);
@@ -229,8 +227,6 @@ void *break_pass(void *ptr) {
             }
             
         }
-        if(args->shared->resuelto == 1) //avisar a otros threads q la passw ha sido encontrada
-            break;
 
     }
     return NULL;
