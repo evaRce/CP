@@ -125,10 +125,9 @@ void * print_progress(void * ptr){
             printf("\r\t\t\tProgress [%ld%%] %s",porcentaje ,barra);
             fflush(stdout);
             parcial++;
-
         }
     }
-
+    
     pthread_mutex_unlock(&args->shared->mutex_revisado);
     printf("\n");
     return NULL;
@@ -154,6 +153,7 @@ void *break_pass(void *ptr) {
     unsigned char md5_num[MD5_DIGEST_LENGTH];
     unsigned char res[MD5_DIGEST_LENGTH];
     unsigned char *pass = malloc((PASS_LEN + 1) * sizeof(char)); //shared->solucion
+
 
     while(args->shared->cont_passw != args->shared->num_passw){
         while(salida == 0){
@@ -183,7 +183,7 @@ void *break_pass(void *ptr) {
 
         for(i = args->shared->bound_inf; i < args->shared->bound_sup; i++) {
             if(i == 0 || total >= pow(10,6)){
-                printf("\rCasos : %ld", cont);
+                printf("\rCasos : %ld\t\t", cont);
                 t1 = microsegundos();
                 fflush(stdout);
                 cont = 0;
@@ -193,25 +193,23 @@ void *break_pass(void *ptr) {
                 args->shared->num_passw-=1;
             }
 
+            long_to_pass(i, pass);
+            MD5(pass, PASS_LEN, res);
+
             for(j = 0; j < args->shared->num_passw; j++){
-                if(args->shared->resuelto[j] == 0){ 
-   
-                    long_to_pass(i, pass);
-                    hex_to_num(argv1[j], md5_num);
-                    MD5(pass, PASS_LEN, res);
----
+                hex_to_num(argv1[j], md5_num);
+                if(args->shared->resuelto[j] == 0){ //meterlo en el while del rango
                     if(0 == memcmp(res, md5_num, MD5_DIGEST_LENGTH)){
                         pthread_mutex_lock(&args->shared->mutex_resuelto);
                         args->shared->resuelto[j] = 1;
                         args->shared->cont_passw++;
-                        printf("%s: %s\n", argv1[j], pass); // Imprimimos la contraseña descodificada
+                        printf("%s: %s\n\n", argv1[j], pass); // Imprimimos la contraseña descodificada
                         pthread_cond_signal(&args->shared->cond);
                         pthread_mutex_unlock(&args->shared->mutex_resuelto);
                         //free(pass);
                         break; // Found it!
                     } 
                 }
-                //caso si en una iterarion 'i' no encontro las 'j' contraseñas, vaya a la iteracion i+1
                 
             }
 
@@ -237,7 +235,6 @@ void *break_pass(void *ptr) {
 
     }
     if(args->shared->cont_passw == args->shared->num_passw)
-        puts("ENCONTRE TODAS LAS CONTRas");
     free(pass);
     return NULL;
 }
