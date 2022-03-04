@@ -182,10 +182,10 @@ void *break_pass(void *ptr) {
 
         for(i = args->shared->bound_inf; i < args->shared->bound_sup; i++) {
             if(i == 0 || total == pow(10,6)){
-                    printf("\rCasos : %ld", cont);
-                    t1 = microsegundos();
-                    fflush(stdout);
-                    cont = 0;
+                printf("\rCasos : %ld", cont);
+                t1 = microsegundos();
+                fflush(stdout);
+                cont = 0;
             }
             //si los 2 hash q se le pasa por terminal son iguales, descifras solo un passw
             if(strcmp(argv1[0],argv1[1]) == 0){
@@ -193,7 +193,7 @@ void *break_pass(void *ptr) {
             }
 
             for(j = 0; j < args->shared->num_passw; j++){
-                if(args->shared->resuelto[j] == 0){ //avisar a otros threads q la passw ha sido encontrada
+                if(args->shared->resuelto[j] == 0){ 
                     long_to_pass(i, pass);
                     hex_to_num(argv1[j], md5_num);
                     MD5(pass, PASS_LEN, res);
@@ -205,14 +205,13 @@ void *break_pass(void *ptr) {
                         printf("%s: %s\n", argv1[j], pass); // Imprimimos la contraseña descodificada
                         pthread_cond_signal(&args->shared->cond);
                         pthread_mutex_unlock(&args->shared->mutex_resuelto);
-                        free(pass);
+                        //free(pass);
                         break; // Found it!
                     } 
-
-                    //caso si en una iterarion 'i' no encontro las 'j' contraseñas, vaya a la iteracion i+1
-                    if(j < args->shared->cont_passw){
-                        break;
-                    }
+                }
+                //caso si en una iterarion 'i' no encontro las 'j' contraseñas, vaya a la iteracion i+1
+                if(args->shared->resuelto[j] == 1 || j < args->shared->cont_passw){
+                    break;
                 }
             }
 
@@ -237,6 +236,7 @@ void *break_pass(void *ptr) {
         }
 
     }
+    free(pass);
     return NULL;
 }
 
