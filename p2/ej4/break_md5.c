@@ -161,7 +161,7 @@ void *break_pass(void *ptr) {
             pthread_mutex_lock(&args->shared->mutex_cont_compartido);
             //cuando no hay mas posibilidades de pruebas para los threads q intenten coger un rango
             if(casos_restantes == 0){  
-                printf("No puedes reservar un rango\n");
+                printf("No puedes reservar un rango %ld\n",args->shared->revisado);
                 pthread_mutex_unlock(&args->shared->mutex_cont_compartido);
                 break;
             }
@@ -188,11 +188,11 @@ void *break_pass(void *ptr) {
                 cont = 0;
             }
             //si los 2 hash q se le pasa por terminal son iguales, descifras solo un passw
-            if(strcmp(argv1[0],argv1[1]) == 0){
+            if(strcmp(argv1[1],argv1[2]) == 0){
                 args->shared->num_passw-=1;
             }
 
-            for(j = 0; j < args->shared->num_passw; j++){
+            for(j = 1; j <= args->shared->num_passw; j++){
                 if(args->shared->resuelto[j] == 0){ 
                     long_to_pass(i, pass);
                     hex_to_num(argv1[j], md5_num);
@@ -288,7 +288,7 @@ void init_shared(struct shared * shared, char * arr[], int num_passw){//passw, c
     shared->num_passw = num_passw;
     int i;
 
-    for(i = 0; i < num_passw; i++){
+    for(i = 1; i <= num_passw; i++){
         shared->original[i] = arr[i];
         shared->resuelto[i] = 0;
     }
