@@ -122,15 +122,13 @@ void * print_progress(void * ptr){
             barra[parcial] = '#';
             barra[parcial+1] = '\0';
             porcentaje = ((float) args->shared->cont_compartido/total) * 100;
-            printf("\r%70s [%ld%%] %s", "Progress",porcentaje ,barra);
+            printf("\r%72s [%ld%%] %s", "Progress",porcentaje ,barra);
             fflush(stdout);
             parcial++;
         }
-        //printf("\r\t\tProgress [%ld%%] %s",porcentaje ,barra);
     }
     
     pthread_mutex_unlock(&args->shared->mutex_revisado);
-    printf("\n");
     return NULL;
 }
 
@@ -204,7 +202,7 @@ void *break_pass(void *ptr) {
                         pthread_mutex_lock(&args->shared->mutex_resuelto);
                         args->shared->resuelto[j] = 1;
                         args->shared->cont_passw++;
-                        printf("\t%s: %s\n", argv1[j], pass); // Imprimimos la contraseña descodificada
+                        printf("\t  %s: %s\n", argv1[j], pass); // Imprimimos la contraseña descodificada
                         pthread_cond_signal(&args->shared->cond);
                         pthread_mutex_unlock(&args->shared->mutex_resuelto);
                         //free(pass);
