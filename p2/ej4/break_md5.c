@@ -15,7 +15,6 @@ struct shared{
     int *resuelto;
     long cont_compartido;
     char ** original; //passw q se le pasa
-    char ** solucion; //passw estimada, q deberia salir
     long bound;
     long bound_inf; //limite inferior
     long bound_sup; //limite superior
@@ -150,11 +149,11 @@ void *break_pass(void *ptr) {
     long casos_a_probar = 1000,
         casos_a_probar_local = 0, 
         casos_restantes = args->shared->bound;
-    double t1, t2, total;
+    double t1 = 0, t2 = 0, total = 0;
     int salida = 0, j;
     unsigned char md5_num[MD5_DIGEST_LENGTH];
     unsigned char res[MD5_DIGEST_LENGTH];
-    unsigned char *pass = malloc((PASS_LEN + 1) * sizeof(char));//shared->solucion
+    unsigned char *pass = malloc((PASS_LEN + 1) * sizeof(char)); //shared->solucion
 
     while(args->shared->cont_passw != args->shared->num_passw){
         while(salida == 0){
@@ -176,28 +175,31 @@ void *break_pass(void *ptr) {
             //rangos del thread
             args->shared->bound_inf = casos_a_probar_local;
             args->shared->bound_sup = args->shared->cont_compartido;
+            //printf("(%ld, %ld)\n",args->shared->bound_inf, args->shared->bound_sup);
             salida = 1;
+            
             pthread_mutex_unlock(&args->shared->mutex_cont_compartido);
         }
 
         for(i = args->shared->bound_inf; i < args->shared->bound_sup; i++) {
-            if(i == 0 || total == pow(10,6)){
+            if(i == 0 || total >= pow(10,6)){
                 printf("\rCasos : %ld", cont);
                 t1 = microsegundos();
                 fflush(stdout);
                 cont = 0;
             }
             //si los 2 hash q se le pasa por terminal son iguales, descifras solo un passw
-            if(strcmp(argv1[1],argv1[2]) == 0){
+            if(strcmp(argv1[0],argv1[1]) == 0){
                 args->shared->num_passw-=1;
             }
 
-            for(j = 1; j <= args->shared->num_passw; j++){
+            for(j = 0; j < args->shared->num_passw; j++){
                 if(args->shared->resuelto[j] == 0){ 
+   
                     long_to_pass(i, pass);
                     hex_to_num(argv1[j], md5_num);
                     MD5(pass, PASS_LEN, res);
-
+---
                     if(0 == memcmp(res, md5_num, MD5_DIGEST_LENGTH)){
                         pthread_mutex_lock(&args->shared->mutex_resuelto);
                         args->shared->resuelto[j] = 1;
@@ -210,9 +212,7 @@ void *break_pass(void *ptr) {
                     } 
                 }
                 //caso si en una iterarion 'i' no encontro las 'j' contraseñas, vaya a la iteracion i+1
-                if(args->shared->resuelto[j] == 1 || j < args->shared->cont_passw){
-                    break;
-                }
+                
             }
 
             t2 = microsegundos();
@@ -236,6 +236,8 @@ void *break_pass(void *ptr) {
         }
 
     }
+    if(args->shared->cont_passw == args->shared->num_passw)
+        puts("ENCONTRE TODAS LAS CONTRas");
     free(pass);
     return NULL;
 }
@@ -282,14 +284,14 @@ void init_shared(struct shared * shared, char * arr[], int num_passw){//passw, c
     shared->cont_compartido = 0;
     shared->resuelto = malloc(sizeof(int) * num_passw);
     shared->revisado = 0;
-    shared->original = malloc(sizeof(char *) * 33 * num_passw); // hash/0 (33 caracteres)
+    shared->original = malloc(sizeof(char *) * 33 * (num_passw)); // hash/0 (33 caracteres)
     //shared->solucion = malloc(sizeof(char *) * (PASS_LEN+1)); //passw/0 (7caracteres)
     shared->cont_passw = 0;
     shared->num_passw = num_passw;
     int i;
 
-    for(i = 1; i <= num_passw; i++){
-        shared->original[i] = arr[i];
+    for(i = 0; i < num_passw; i++){
+        shared->original[i] = arr[i+1];
         shared->resuelto[i] = 0;
     }
 
@@ -307,8 +309,6 @@ void wait(struct shared * shared, struct thread_info *threads, int num_threads) 
 
 
     for(i = 0; i < num_threads; i++){
-        free(threads[i].args->shared->resuelto);
-        free(threads[i].args->shared->original);
         free(threads[i].args);
     }
 
@@ -317,6 +317,8 @@ void wait(struct shared * shared, struct thread_info *threads, int num_threads) 
     pthread_mutex_destroy(&shared->mutex_cont_compartido);
     pthread_cond_destroy(&shared->cond);
 
+    free(shared->resuelto);
+    free(shared->original);
     free(threads);  //libera memoria
 }
 
