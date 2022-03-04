@@ -122,10 +122,11 @@ void * print_progress(void * ptr){
             barra[parcial] = '#';
             barra[parcial+1] = '\0';
             porcentaje = ((float) args->shared->cont_compartido/total) * 100;
-            printf("\r\t\tProgress [%ld%%] %s",porcentaje ,barra);
+            printf("\r%70s [%ld%%] %s", "Progress",porcentaje ,barra);
             fflush(stdout);
             parcial++;
         }
+        //printf("\r\t\tProgress [%ld%%] %s",porcentaje ,barra);
     }
     
     pthread_mutex_unlock(&args->shared->mutex_revisado);
@@ -182,7 +183,7 @@ void *break_pass(void *ptr) {
         }
 
         for(i = args->shared->bound_inf; i < args->shared->bound_sup; i++) {
-            if(i == 0 || total >= pow(10,6)){
+            if((i == 0 || total >= pow(10,6)) && args->shared->cont_passw != args->shared->num_passw){
                 printf("\rCasos : %ld", cont);
                 t1 = microsegundos();
                 fflush(stdout);
@@ -302,7 +303,6 @@ void wait(struct shared * shared, struct thread_info *threads, int num_threads) 
     int i;
     for(i = 0; i < num_threads; i++)
         pthread_join(threads[i].id, NULL); //finalizara el thread
-
 
     for(i = 0; i < num_threads; i++){
         free(threads[i].args);
