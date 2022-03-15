@@ -13,6 +13,8 @@
 
 -export([progress_loop/2]).
 
+-export([cont_seg/2]).
+
 % Base ^ Exp
 
 pow_aux(_Base, Pow, 0) ->
@@ -72,41 +74,33 @@ progress_loop(N, Bound) ->
             Full_N = N2 * ?BAR_SIZE div Bound,
             Full = lists:duplicate(Full_N, $=), %Returns a list containing N(Full_N) copies of term Elem($=).
             Empty = lists:duplicate(?BAR_SIZE - Full_N, $-),
-            io:format("\r[~s~s] ~.2f%", [Full, Empty, N2/Bound*100]),
+            io:format("\r \t \t [~s~s] ~.2f%", [Full, Empty, N2/Bound*100]),
             progress_loop(N2, Bound)
     end.
 
-
-contador(N) ->
+cont_seg(N, T1)->
     receive 
-        stop ->
+        done ->
             ok;
-        inicial ->
-            contador(0);
-        incrementar ->
-            contador(N+1);
-        imprimir ->
-            io:format("Casos ~w", [N])
+        {cont, Cont} ->
+            T2 = erlang:monotonic_time(microsecond),
+            Media = Cont div (T2 - T1),
+            %io:format("\r~p", [Media]),
+            cont_seg(Cont, T1)
+    after 
+        1000 ->
+            T2 = erlang:monotonic_time(microsecond),
+            Media = N div (T2 - T1),
+            io:format("\r~p", [Media]),
+            cont_seg(N, T1)
     end.
-
-
-total(T1, T2)->
-    T2-T1.
-
 
 %% break_md5/2 iterates checking the possible passwords
 break_md5([], _, _, Progress_Pid, Contador_Pid) ->
-    Contador_Pid ! stop, 
+    Contador_Pid ! done,
     Progress_Pid ! stop;
 break_md5(Num_Hashes, N, N, _, _) -> {not_found, Num_Hashes};  % Checked every possible password
 break_md5(Num_Hashes, N, Bound, Progress_Pid, Contador_Pid) ->
-    if (N == 0) or (total(T1, T2) >= ?MAX_TIME)->
-            T1 = erlang:monotonic_time(microsecond),
-            Contador_Pid ! imprimir,
-            Contador_Pid ! inicial;
-        true -> 
-            ok
-    end,
     if N rem ?UPDATE_BAR_GAP == 0 ->   %rem =  módulo
             Progress_Pid ! {progress_report, ?UPDATE_BAR_GAP};
        true ->
@@ -115,16 +109,16 @@ break_md5(Num_Hashes, N, Bound, Progress_Pid, Contador_Pid) ->
     Pass = num_to_pass(N),
     Hash = crypto:hash(md5, Pass),
     Num_Hash = binary:decode_unsigned(Hash),
-    T2 = erlang:monotonic_time(microsecond),
-    total(T1, T2),
-    Contador_Pid ! incrementar,
+    Contador_Pid ! {cont, N},
     case lists:member(Num_Hash, Num_Hashes) of
         true -> 
             io:format("\e[2K\r~.16B: ~s~n", [Num_Hash, Pass]),
-            break_md5(lists:delete(Num_Hash, Num_Hashes), N+1, Bound, Progress_Pid);
+            break_md5(lists:delete(Num_Hash, Num_Hashes), N+1, Bound, Progress_Pid, Contador_Pid);
         false ->
-            break_md5(Num_Hashes, N+1, Bound, Progress_Pid)
+            break_md5(Num_Hashes, N+1, Bound, Progress_Pid, Contador_Pid)
     end.
+
+
 
 
 %% Break a hash
@@ -141,7 +135,7 @@ break_md5(Num_Hashes, N, Bound, Progress_Pid, Contador_Pid) ->
 break_md5s(Hashes)->
     Bound = pow(26, ?PASS_LEN),
     Progress_Pid = spawn(?MODULE, progress_loop, [0, Bound]),  %[0, Bound] son los argumentos para progess_loop
-    Contador_Pid = spawn(?MODULE, contador, 0),
+    Contador_Pid = spawn(?MODULE, cont_seg, [0, erlang:monotonic_time(microsecond)]),
     Num_Hashes = lists:map(fun hex_string_to_num/1, Hashes),
     break_md5(Num_Hashes, 0, Bound, Progress_Pid, Contador_Pid).
 
