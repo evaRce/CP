@@ -15,6 +15,8 @@
 
 -export([cont_seg/2]).
 
+-export([consumer/1]).
+
 % Base ^ Exp
 
 pow_aux(_Base, Pow, 0) ->
@@ -74,33 +76,50 @@ progress_loop(N, Bound) ->
             Full_N = N2 * ?BAR_SIZE div Bound,
             Full = lists:duplicate(Full_N, $=), %Returns a list containing N(Full_N) copies of term Elem($=).
             Empty = lists:duplicate(?BAR_SIZE - Full_N, $-),
-            io:format("\r \t \t [~s~s] ~.2f%", [Full, Empty, N2/Bound*100]),
+            io:format("\r[~s~s] ~.2f%\t\t", [Full, Empty, N2/Bound*100]),
             progress_loop(N2, Bound)
     end.
 
-cont_seg(N, T1)->
+cont_seg(T1, Consumer_Pid)->
     receive 
         done ->
-            ok;
-        {cont, Cont} ->
-            T2 = erlang:monotonic_time(microsecond),
-            Media = Cont div (T2 - T1),
-            %io:format("\r~p", [Media]),
-            cont_seg(Cont, T1)
+            exit(normal)
     after 
         1000 ->
-            T2 = erlang:monotonic_time(microsecond),
-            Media = N div (T2 - T1),
-            io:format("\r~p", [Media]),
-            cont_seg(N, T1)
+            Consumer_Pid ! {self(), dame_n},
+            receive
+                N ->
+                    T2 = erlang:monotonic_time(microsecond),
+                    Time = 
+                        case ((T2 div ?MAX_TIME) - (T1 div ?MAX_TIME)) of 
+                            0 ->
+                                1;
+                            M -> 
+                                M
+                        end,
+                    Media = N div Time,
+                    io:format("Casos: ~p", [Media]),
+                    cont_seg(T1, Consumer_Pid)
+            end
     end.
 
+consumer(N) ->
+    receive
+        done -> exit(normal);
+        {Pid, dame_n} ->
+            Pid ! N,
+            consumer(N);
+        {cont, M} -> 
+            consumer(M)
+    end.
+
+
 %% break_md5/2 iterates checking the possible passwords
-break_md5([], _, _, Progress_Pid, Contador_Pid) ->
-    Contador_Pid ! done,
+break_md5([], _, _, Progress_Pid, Consumer_Pid) ->
+    Consumer_Pid ! done,
     Progress_Pid ! stop;
 break_md5(Num_Hashes, N, N, _, _) -> {not_found, Num_Hashes};  % Checked every possible password
-break_md5(Num_Hashes, N, Bound, Progress_Pid, Contador_Pid) ->
+break_md5(Num_Hashes, N, Bound, Progress_Pid, Consumer_Pid) ->
     if N rem ?UPDATE_BAR_GAP == 0 ->   %rem =  módulo
             Progress_Pid ! {progress_report, ?UPDATE_BAR_GAP};
        true ->
@@ -109,33 +128,22 @@ break_md5(Num_Hashes, N, Bound, Progress_Pid, Contador_Pid) ->
     Pass = num_to_pass(N),
     Hash = crypto:hash(md5, Pass),
     Num_Hash = binary:decode_unsigned(Hash),
-    Contador_Pid ! {cont, N},
+    Consumer_Pid ! {cont, N},
     case lists:member(Num_Hash, Num_Hashes) of
         true -> 
             io:format("\e[2K\r~.16B: ~s~n", [Num_Hash, Pass]),
-            break_md5(lists:delete(Num_Hash, Num_Hashes), N+1, Bound, Progress_Pid, Contador_Pid);
+            break_md5(lists:delete(Num_Hash, Num_Hashes), N+1, Bound, Progress_Pid, Consumer_Pid);
         false ->
-            break_md5(Num_Hashes, N+1, Bound, Progress_Pid, Contador_Pid)
+            break_md5(Num_Hashes, N+1, Bound, Progress_Pid, Consumer_Pid)
     end.
-
-
-
-
-%% Break a hash
-%break_md5(Hash) ->
-%%    Bound = pow(26, ?PASS_LEN),
-%%    Progress_Pid = spawn(?MODULE, progress_loop, [0, Bound]),  %[0, Bound] son los argumentos para progess_loop
-%%    Num_Hash = hex_string_to_num(Hash),
-%%    Res = break_md5(Num_Hash, 0, Bound, Progress_Pid),
-%%    Progress_Pid ! stop,
-%%    Res.
-
 
 %ej1
 break_md5s(Hashes)->
     Bound = pow(26, ?PASS_LEN),
     Progress_Pid = spawn(?MODULE, progress_loop, [0, Bound]),  %[0, Bound] son los argumentos para progess_loop
-    Contador_Pid = spawn(?MODULE, cont_seg, [0, erlang:monotonic_time(microsecond)]),
+    Consumer_Pid = spawn(?MODULE, consumer, [0]),
+    Contador_Pid = spawn(?MODULE, cont_seg, [erlang:monotonic_time(microsecond), Consumer_Pid]),
     Num_Hashes = lists:map(fun hex_string_to_num/1, Hashes),
-    break_md5(Num_Hashes, 0, Bound, Progress_Pid, Contador_Pid).
+    break_md5(Num_Hashes, 0, Bound, Progress_Pid, Consumer_Pid),
+    Contador_Pid ! done.
 
