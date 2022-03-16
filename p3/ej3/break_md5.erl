@@ -3,6 +3,7 @@
 -define(UPDATE_BAR_GAP, 2600).
 -define(BAR_SIZE, 40).
 -define(MAX_TIME, 1000000).
+-define(NUM_THREADDS, 6).
 
 -export([break_md5s/1,
          pass_to_num/1,
@@ -66,6 +67,7 @@ num_to_hex_string(0) -> "0";
 num_to_hex_string(N) -> num_to_hex_string_aux(N, []).
 
 
+
 %% Progress bar runs in its own process
 %% Barra del proceso
 progress_loop(N, Bound) ->
@@ -80,7 +82,9 @@ progress_loop(N, Bound) ->
             progress_loop(N2, Bound)
     end.
 
-%%Envia mensaje al consumidor para que le proporciones N    
+
+    
+%% Recibe los casos procesados por el Progress_Pid   
 cont_seg(T1)->
     receive 
         done ->
@@ -106,34 +110,79 @@ cont_seg(T1)->
 
 
 %% break_md5/2 iterates checking the possible passwords
-%% Envia mensajes a la barraDeProceso y al consumidor
-break_md5([], _, _, Progress_Pid, _) ->
-    Progress_Pid ! stop;
-break_md5(Num_Hashes, N, N, _, _) -> {not_found, Num_Hashes};  % Checked every possible password
-break_md5(Num_Hashes, N, Bound, Progress_Pid, Contador_Pid) ->
-    if N rem ?UPDATE_BAR_GAP == 0 ->   %rem =  módulo
-            Contador_Pid ! {cont, N},
-            Progress_Pid ! {progress_report, ?UPDATE_BAR_GAP};
-       true ->
-            ok
-    end,
-    Pass = num_to_pass(N),
-    Hash = crypto:hash(md5, Pass),
-    Num_Hash = binary:decode_unsigned(Hash),
-    case lists:member(Num_Hash, Num_Hashes) of
-        true -> 
-            io:format("\e[2K\r~.16B: ~s~n", [Num_Hash, Pass]),
-            break_md5(lists:delete(Num_Hash, Num_Hashes), N+1, Bound, Progress_Pid, Contador_Pid);
-        false ->
-            break_md5(Num_Hashes, N+1, Bound, Progress_Pid, Contador_Pid)
+%% Envia mensajes a la barraDeProceso y al contador
+break_md5(_Pid_Padre, [], _N, _Bound, _Progress_Pid, _Contador_Pid) -> 
+    ok;
+break_md5(Pid_Padre, Num_Hashes, N, N, __Progress_Pid, __Contador_Pid) -> 
+    {not_found, Num_Hashes};  % Checked every possible password
+break_md5(Pid_Padre, Num_Hashes, N, Bound, Progress_Pid, Contador_Pid) ->
+    receive
+        {notify_hash, Hash} -> 
+            break_md5(Pid_Padre, lists:delete(Hash, Num_Hashes), N, Bound, Progress_Pid, Contador_Pid)
+    after 
+        0 ->
+            if N rem ?UPDATE_BAR_GAP == 0 ->   %rem =  módulo
+                Contador_Pid ! {cont, N},
+                Progress_Pid ! {progress_report, ?UPDATE_BAR_GAP};
+            true ->
+                    ok
+            end,
+            Pass = num_to_pass(N),
+            Hash = crypto:hash(md5, Pass),
+            Num_Hash = binary:decode_unsigned(Hash),
+            case lists:member(Num_Hash, Num_Hashes) of
+                true -> 
+                    Pid_Padre ! {hash_found, Num_Hash, self()},
+                    io:format("\e[2K\r~.16B: ~s~n", [Num_Hash, Pass]),
+                    break_md5(Pid_Padre, lists:delete(Num_Hash, Num_Hashes), N+1, Bound, Progress_Pid, Contador_Pid);
+                false ->
+                    break_md5(Pid_Padre, Num_Hashes, N+1, Bound, Progress_Pid, Contador_Pid)
+            end
     end.
 
+
+
+start_threads(0, _, _, Process_List, _, _) -> Process_List;
+start_threads(Num_Process, Fun, [Args], Process_List, Rango, Resto_Rango) ->
+    Pid = spawn(?MODULE, Fun, Args),
+    start_threads(Num_Process-1, Fun, Args, [Pid|Process_List], Rango, Rango).
+
+
+%% EL Pid_Padre avisa a todos los procesos la contraseña(Hash) que fue encontrada
+notify([], _) -> ok;
+notify([H|T], Hash) ->
+    H ! {notify_hash, Hash},
+    notify(T, Hash).
+
+
+%% Realizada por el Pid_Padre
+loop_receive(Pid_List, []) ->
+    Fun = fun(Pid) -> exit(Pid, kill) end,
+    lists:foreach(Fun, Pid_List);
+loop_receive(Pid_List, Num_Hashes) ->
+    receive
+        {hash_found, Hash, Pid} ->
+            notify(lists:delete(Pid, Pid_List), Hash),
+            New_Num_Hashes = lists:delete(Hash, Num_Hashes),
+            loop_receive(Pid_List, New_Num_Hashes)
+    end.
+
+
+
+    
+
 %ej1
-break_md5s(Hashes)->
+break_md5s(Hashes) ->
     Bound = pow(26, ?PASS_LEN),
     Progress_Pid = spawn(?MODULE, progress_loop, [0, Bound]),  %[0, Bound] son los argumentos para progess_loop
     Contador_Pid = spawn(?MODULE, cont_seg, [erlang:monotonic_time(microsecond)]),
     Num_Hashes = lists:map(fun hex_string_to_num/1, Hashes),
-    break_md5(Num_Hashes, 0, Bound, Progress_Pid, Contador_Pid),
-    Contador_Pid ! done.
+    Pid_Padre = self(),
+    %%rangos
+    Rango = (Bound div ?NUM_THREADDS),
+    Resto_Rango = Bound rem ?NUM_THREADDS,
+    Pid_List = start_threads(?NUM_THREADDS, break_md5, [Pid_Padre, Num_Hashes, 0, Bound, Progress_Pid, Contador_Pid], [], Rango, Resto_Rango),
+    loop_receive(Pid_List, Num_Hashes),
+    Contador_Pid ! done,
+    Progress_Pid ! stop.
 
