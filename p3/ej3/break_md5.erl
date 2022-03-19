@@ -3,7 +3,7 @@
 -define(UPDATE_BAR_GAP, 2600).
 -define(BAR_SIZE, 40).
 -define(MAX_TIME, 1000000).
--define(NUM_THREADDS, 6).
+-define(NUM_PROCESS, 6).
 
 -export([break_md5s/1,
          pass_to_num/1,
@@ -11,9 +11,10 @@
          num_to_hex_string/1,
          hex_string_to_num/1
         ]).
-
+-export([break/6]).
+-export([start_process/10]).
 -export([progress_loop/2]).
-
+-export([kill_receive/2]).
 -export([cont_seg/1]).
 
 
@@ -111,14 +112,15 @@ cont_seg(T1)->
 
 %% break_md5/2 iterates checking the possible passwords
 %% Envia mensajes a la barraDeProceso y al contador
-break_md5(_Pid_Padre, [], _N, _Bound, _Progress_Pid, _Contador_Pid) -> 
-    ok;
-break_md5(Pid_Padre, Num_Hashes, N, N, __Progress_Pid, __Contador_Pid) -> 
+break_md5(Pid_Padre, [], _N, _Bound, _Progress_Pid, _Contador_Pid,_Process_List) ->
+    Pid_Padre ! {killProc,self()};
+
+break_md5(_Pid_Padre, Num_Hashes, N, N, _Progress_Pid, _Contador_Pid,_Process_List) ->
     {not_found, Num_Hashes};  % Checked every possible password
-break_md5(Pid_Padre, Num_Hashes, N, Bound, Progress_Pid, Contador_Pid) ->
+break_md5(Pid_Padre, Num_Hashes, N, Bound, Progress_Pid, Contador_Pid,Process_List) ->
     receive
-        {notify_hash, Hash} -> 
-            break_md5(Pid_Padre, lists:delete(Hash, Num_Hashes), N, Bound, Progress_Pid, Contador_Pid)
+        {notify_hash, Hashes} ->
+            break_md5(Pid_Padre,Hashes, N, Bound, Progress_Pid, Contador_Pid,Process_List)
     after 
         0 ->
             if N rem ?UPDATE_BAR_GAP == 0 ->   %rem =  módulo
@@ -132,46 +134,68 @@ break_md5(Pid_Padre, Num_Hashes, N, Bound, Progress_Pid, Contador_Pid) ->
             Num_Hash = binary:decode_unsigned(Hash),
             case lists:member(Num_Hash, Num_Hashes) of
                 true -> 
-                    Pid_Padre ! {hash_found, Num_Hash, self()},
+                    %Pid_Padre ! {hash_found, Num_Hash, self()},
+                    notify(lists:delete(self(), Process_List), lists:delete(Num_Hash, Num_Hashes)),
                     io:format("\e[2K\r~.16B: ~s~n", [Num_Hash, Pass]),
-                    break_md5(Pid_Padre, lists:delete(Num_Hash, Num_Hashes), N+1, Bound, Progress_Pid, Contador_Pid);
+                    break_md5(Pid_Padre, lists:delete(Num_Hash, Num_Hashes), N+1, Bound, Progress_Pid, Contador_Pid,Process_List);
                 false ->
-                    break_md5(Pid_Padre, Num_Hashes, N+1, Bound, Progress_Pid, Contador_Pid)
+                    break_md5(Pid_Padre, Num_Hashes, N+1, Bound, Progress_Pid, Contador_Pid,Process_List)
             end
     end.
 
-
-
-start_threads(0, _, _, Process_List, _, _) -> Process_List;
-start_threads(Num_Process, Fun, [Args], Process_List, Rango, Resto_Rango) ->
-    Pid = spawn(?MODULE, Fun, Args),
-    start_threads(Num_Process-1, Fun, Args, [Pid|Process_List], Rango, Rango).
-
-
-%% EL Pid_Padre avisa a todos los procesos la contraseña(Hash) que fue encontrada
-notify([], _) -> ok;
-notify([H|T], Hash) ->
-    H ! {notify_hash, Hash},
-    notify(T, Hash).
-
-
-%% Realizada por el Pid_Padre
-loop_receive(Pid_List, []) ->
-    Fun = fun(Pid) -> exit(Pid, kill) end,
-    lists:foreach(Fun, Pid_List);
-loop_receive(Pid_List, Num_Hashes) ->
+break(Pid_Padre, Num_Hashes,First,Last,Progress_Pid, Contador_Pid) ->
     receive
-        {hash_found, Hash, Pid} ->
-            notify(lists:delete(Pid, Pid_List), Hash),
-            New_Num_Hashes = lists:delete(Hash, Num_Hashes),
-            loop_receive(Pid_List, New_Num_Hashes)
+        {process_list, Process_List_M} ->
+            break_md5(Pid_Padre, Num_Hashes,First,Last,Progress_Pid, Contador_Pid,Process_List_M)
+    end.
+
+start_process(0, _,_,_,_,_,_,Process_List,_,_) ->
+    Fun = fun(N) -> N ! {process_list, Process_List} end,
+    lists:foreach(Fun, Process_List);
+start_process(Num_Process, Pid_Padre, Num_Hashes,First,Last,Progress_Pid, Contador_Pid,Process_List,Bound,Rango) ->
+    if
+        Last+Rango >= Bound ->
+            Pid = spawn(?MODULE, break,[ Pid_Padre, Num_Hashes, First, Bound, Progress_Pid, Contador_Pid]),
+            start_process(Num_Process-1,Pid_Padre, Num_Hashes, First, Bound, Progress_Pid, Contador_Pid,[Pid|Process_List],Bound, Rango);
+
+        true ->
+            Pid = spawn(?MODULE, break,[ Pid_Padre, Num_Hashes, First, Last, Progress_Pid, Contador_Pid]),
+            start_process(Num_Process-1,Pid_Padre, Num_Hashes, First+Rango,Last+Rango, Progress_Pid, Contador_Pid,[Pid|Process_List],Bound, Rango)
     end.
 
 
 
-    
+%% El Pid_Padre avisa a todos los procesos la contraseña(Hash) que fue encontrada
+notify([], _) -> ok;
+notify([H|T], Num_Hashes) ->
+    H ! {notify_hash, Num_Hashes},
+    notify(T, Num_Hashes).
 
-%ej1
+
+%% Realizada por el Pid_Padre
+kill_receive(0,_Contador_Pid) -> ok;
+kill_receive(N,Contador_Pid) ->
+    receive
+        {killProc,Pid}->
+            if N == ?NUM_PROCESS->
+                exit(Contador_Pid, kill);
+            true ->
+                ok
+            end,
+            exit(Pid, kill),
+            kill_receive(N-1,Contador_Pid)
+    end.
+
+%%loop_receive(Pid_List, Num_Hashes) ->
+%%    receive
+%%        {hash_found, Hash, Pid} ->
+%%            io:format("ESTOY"),
+%%            notify(lists:delete(Pid, Pid_List), Hash),
+%%            New_Num_Hashes = lists:delete(Hash, Num_Hashes),
+%%            loop_receive(Pid_List, New_Num_Hashes)
+%%    end.
+
+
 break_md5s(Hashes) ->
     Bound = pow(26, ?PASS_LEN),
     Progress_Pid = spawn(?MODULE, progress_loop, [0, Bound]),  %[0, Bound] son los argumentos para progess_loop
@@ -179,10 +203,8 @@ break_md5s(Hashes) ->
     Num_Hashes = lists:map(fun hex_string_to_num/1, Hashes),
     Pid_Padre = self(),
     %%rangos
-    Rango = (Bound div ?NUM_THREADDS),
-    Resto_Rango = Bound rem ?NUM_THREADDS,
-    Pid_List = start_threads(?NUM_THREADDS, break_md5, [Pid_Padre, Num_Hashes, 0, Bound, Progress_Pid, Contador_Pid], [], Rango, Resto_Rango),
-    loop_receive(Pid_List, Num_Hashes),
-    Contador_Pid ! done,
+    Rango = (Bound div ?NUM_PROCESS),
+    start_process(?NUM_PROCESS, Pid_Padre, Num_Hashes, 0,Rango,Progress_Pid, Contador_Pid, [], Bound,Rango),
+    kill_receive(?NUM_PROCESS,Contador_Pid),
     Progress_Pid ! stop.
 
