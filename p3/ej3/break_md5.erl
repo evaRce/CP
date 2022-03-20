@@ -14,8 +14,9 @@
 -export([break/6]).
 -export([start_process/10]).
 -export([progress_loop/2]).
--export([kill_receive/2]).
+-export([done_receive/5]).
 -export([cont_seg/1]).
+-export([wait/1]).
 
 
 % Base ^ Exp
@@ -71,9 +72,12 @@ num_to_hex_string(N) -> num_to_hex_string_aux(N, []).
 
 %% Progress bar runs in its own process
 %% Barra del proceso
+%% Recibira un flag, cuando done_receive/5 intente matar a Progress_Pid
 progress_loop(N, Bound) ->
+    process_flag(trap_exit, true),
     receive     % it is used to allow processes to wait for messages from other processes
-        stop -> ok;
+        {'EXIT', From, terminate} ->
+            From ! {terminated, self()};
         {progress_report, Checked} ->
             N2 = N + Checked,
             Full_N = N2 * ?BAR_SIZE div Bound,
@@ -85,11 +89,13 @@ progress_loop(N, Bound) ->
 
 
     
-%% Recibe los casos procesados por el Progress_Pid   
+%% Recibe los casos procesados por el proceso que este ejecutando break_md5/7
+%% Recibira un flag, cuando done_receive/5 intente matar a Contador_pid
 cont_seg(T1)->
+    process_flag(trap_exit, true),
     receive 
-        done ->
-            exit(normal)
+        {'EXIT', From, terminate} ->
+            From ! {terminated, self()}
     after 
         1000 ->
             receive
@@ -110,13 +116,12 @@ cont_seg(T1)->
 
 
 
-%% break_md5/2 iterates checking the possible passwords
-%% Envia mensajes a la barraDeProceso y al contador
+%% break_md5/7 iterates checking the possible passwords
+%% Envia mensajes a la barraDeProceso y al contador, tambien ejecuta notify
 break_md5(Pid_Padre, [], _N, _Bound, _Progress_Pid, _Contador_Pid,_Process_List) ->
-    Pid_Padre ! {killProc,self()};
-
-break_md5(_Pid_Padre, Num_Hashes, N, N, _Progress_Pid, _Contador_Pid,_Process_List) ->
-    {not_found, Num_Hashes};  % Checked every possible password
+    Pid_Padre ! done;
+break_md5(Pid_Padre, Num_Hashes, N, N, _Progress_Pid, _Contador_Pid,_Process_List) ->
+    Pid_Padre ! {not_found, Num_Hashes};  % Checked every possible password
 break_md5(Pid_Padre, Num_Hashes, N, Bound, Progress_Pid, Contador_Pid,Process_List) ->
     receive
         {notify_hash, Hashes} ->
@@ -134,7 +139,6 @@ break_md5(Pid_Padre, Num_Hashes, N, Bound, Progress_Pid, Contador_Pid,Process_Li
             Num_Hash = binary:decode_unsigned(Hash),
             case lists:member(Num_Hash, Num_Hashes) of
                 true -> 
-                    %Pid_Padre ! {hash_found, Num_Hash, self()},
                     notify(lists:delete(self(), Process_List), lists:delete(Num_Hash, Num_Hashes)),
                     io:format("\e[2K\r~.16B: ~s~n", [Num_Hash, Pass]),
                     break_md5(Pid_Padre, lists:delete(Num_Hash, Num_Hashes), N+1, Bound, Progress_Pid, Contador_Pid,Process_List);
@@ -143,15 +147,23 @@ break_md5(Pid_Padre, Num_Hashes, N, Bound, Progress_Pid, Contador_Pid,Process_Li
             end
     end.
 
+
+%% funcion asignada a cada proceso
+%% cuando reciba {process_list, Process_List_M} ejecutara break_md5/7
 break(Pid_Padre, Num_Hashes,First,Last,Progress_Pid, Contador_Pid) ->
     receive
         {process_list, Process_List_M} ->
             break_md5(Pid_Padre, Num_Hashes,First,Last,Progress_Pid, Contador_Pid,Process_List_M)
     end.
 
+
+%% Crea n procesos asignandole a cada uno un rango
+%% Cuando Num_Process = 0 la Process_List estara completa,entonces se envia un mensaje{process_list, Process_List} a cada proceso, 
+%% y cada uno se encargara de ejecutar break/6 que a su vez ejecutara break_md5/7
 start_process(0, _,_,_,_,_,_,Process_List,_,_) ->
     Fun = fun(N) -> N ! {process_list, Process_List} end,
-    lists:foreach(Fun, Process_List);
+    lists:foreach(Fun, Process_List),
+    Process_List;
 start_process(Num_Process, Pid_Padre, Num_Hashes,First,Last,Progress_Pid, Contador_Pid,Process_List,Bound,Rango) ->
     if
         Last+Rango >= Bound ->
@@ -165,35 +177,59 @@ start_process(Num_Process, Pid_Padre, Num_Hashes,First,Last,Progress_Pid, Contad
 
 
 
-%% El Pid_Padre avisa a todos los procesos la contraseña(Hash) que fue encontrada
+%% El Pid_Padre envia a todos los procesos que ejecuten break_md5/7 la nueva lista de hashes que faltan por encontrar
 notify([], _) -> ok;
 notify([H|T], Num_Hashes) ->
     H ! {notify_hash, Num_Hashes},
     notify(T, Num_Hashes).
 
 
-%% Realizada por el Pid_Padre
-kill_receive(0,_Contador_Pid) -> ok;
-kill_receive(N,Contador_Pid) ->
+%% Funcion auxiliar de done_receive
+%% Procesa los mensajes de la linea 201
+wait([]) ->
+    ok;
+wait([Msg | Rest]) ->
     receive
-        {killProc,Pid}->
-            if N == ?NUM_PROCESS->
-                exit(Contador_Pid, kill);
-            true ->
-                ok
-            end,
-            exit(Pid, kill),
-            kill_receive(N-1,Contador_Pid)
+        Msg ->
+            wait(Rest)
     end.
 
-%%loop_receive(Pid_List, Num_Hashes) ->
-%%    receive
-%%        {hash_found, Hash, Pid} ->
-%%            io:format("ESTOY"),
-%%            notify(lists:delete(Pid, Pid_List), Hash),
-%%            New_Num_Hashes = lists:delete(Hash, Num_Hashes),
-%%            loop_receive(Pid_List, New_Num_Hashes)
-%%    end.
+%% Realizada por el Pid_Padre
+%% Si el mensaje es 'done' entonces se matan a todos los procesos generados para ejecutas 
+%% el break_md5/6 envia flags para matar a Progess_Pid y Contador_Pid
+%% Si el mensaje es not_found entonces devuelve la lista con los hashes no encontrados
+done_receive(0, _List_Processes, _Progress_Pid, _Contador_Pid, NotFoundHashes) ->
+    NotFoundHashes;
+done_receive(N, List_Processes, Progress_Pid, Contador_Pid, _NotFoundHashes) ->
+    receive
+        done->
+            lists:foreach(fun (P) -> exit(P, terminate) end, List_Processes),
+            exit(Progress_Pid, terminate),
+            exit(Contador_Pid, terminate),
+            wait([{terminated, Progress_Pid}, {terminated, Contador_Pid}]),                
+            [];
+        {not_found, Hashes} ->
+            if
+                (N == 1) ->
+                    lists:foreach(fun (P) -> exit(P, terminate) end, List_Processes),
+                    exit(Progress_Pid, terminate),
+                    exit(Contador_Pid, terminate),
+                    Hashes;
+                true ->
+                    done_receive(N-1, List_Processes, Progress_Pid, Contador_Pid, Hashes)
+            end
+    end.
+
+
+%% limpia el buffer del proceso padre, que ejecuta el shell
+clean_queue() ->
+    receive
+        _ -> 
+            clean_queue()
+    after
+        0 ->
+            ok
+    end.
 
 
 break_md5s(Hashes) ->
@@ -202,9 +238,8 @@ break_md5s(Hashes) ->
     Contador_Pid = spawn(?MODULE, cont_seg, [erlang:monotonic_time(microsecond)]),
     Num_Hashes = lists:map(fun hex_string_to_num/1, Hashes),
     Pid_Padre = self(),
-    %%rangos
     Rango = (Bound div ?NUM_PROCESS),
-    start_process(?NUM_PROCESS, Pid_Padre, Num_Hashes, 0,Rango,Progress_Pid, Contador_Pid, [], Bound,Rango),
-    kill_receive(?NUM_PROCESS,Contador_Pid),
-    Progress_Pid ! stop.
-
+    List_Processes = start_process(?NUM_PROCESS, Pid_Padre, Num_Hashes, 0,Rango,Progress_Pid, Contador_Pid, [], Bound,Rango),
+    NotFoundHashes = done_receive(?NUM_PROCESS, List_Processes, Progress_Pid, Contador_Pid, []),
+    io:format("\rHashes no encontrados: ~p\t\t\t\t\t\t\t\t\t\t~n",[NotFoundHashes]),
+    clean_queue().
