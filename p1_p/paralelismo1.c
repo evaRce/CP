@@ -8,7 +8,7 @@ int main(int argc, char *argv[])
     int i, done = 0, n, count;
     int rank, size;
     double PI25DT = 3.141592653589793238462643;
-    double pi, x, y, z,n_aux;
+    double pi, x, y, z,pi_aux;
 
     MPI_Init(&argc,&argv);
     MPI_Comm_size(MPI_COMM_WORLD,&size);
@@ -47,8 +47,8 @@ int main(int argc, char *argv[])
 
         if(rank==0){
             for (int i = 1; i < size;i++ ){
-                MPI_Recv(&n_aux,1,MPI_DOUBLE,MPI_ANY_SOURCE,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
-                pi+=n_aux;
+                MPI_Recv(&pi_aux,1,MPI_DOUBLE,MPI_ANY_SOURCE,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE);
+                pi+=pi_aux;
             }
             printf("pi is approx. %.16f, Error is %.16f\n", pi, fabs(pi - PI25DT));
         }else{
