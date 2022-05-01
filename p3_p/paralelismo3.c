@@ -42,29 +42,30 @@ int main(int argc, char *argv[] ) {
                 matrix[i*N+j] = i+j;
             }
         }
-
-        for (int i = 0; i < size; i++) {
-            if(i < (N % size)){ //rank < N mod NP
-                rows = (N/size)+1;
-            }else{
-                rows = N/size;
-            }
-            sendCounts[i]=rows*N;
-            if(i =! 0){
-                cnt += sendCounts[i-1];
-            }
-            displs[i]= cnt * N;
-        }
-        //gettimeofday(&tv3, NULL);
-        for (int i = 0; i < size; i++) {
-            MPI_Scatterv(matrix,sendCounts,displs,MPI_FLOAT,matrixAux,rows*N,MPI_FLOAT,0,MPI_COMM_WORLD);
-        }
-
-        MPI_Bcast(&vector,N,MPI_FLOAT,0,MPI_COMM_WORLD);
-        //gettimeofday(&tv4, NULL);
+        
     }
 
+    for (int i = 0; i < size; i++) {
+        if(i < (N % rank)){ //rank < N mod NP
+            rows = (N/rank)+1;
+        }else{
+            rows = N/rank;
+        }
+        sendCounts[i]=rows*N;
+        if(i =! 0){
+            cnt += sendCounts[i-1];
+        }
+        displs[i]= cnt * N;
+    }
+
+    //1er tiempo de comunicación
     gettimeofday(&tv1, NULL);
+    MPI_Scatterv(matrix, sendCounts, displs, MPI_FLOAT, matrixAux, rows*N, MPI_FLOAT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&vector, N, MPI_FLOAT, 0, MPI_COMM_WORLD);
+    gettimeofday(&tv2, NULL);
+
+
+    gettimeofday(&tv3, NULL);
     //Modelizar
     for(i=0;i<N/;i++) {//i hasta N/size
         result[i]=0;
@@ -72,35 +73,27 @@ int main(int argc, char *argv[] ) {
             result[i] += matrixAux[i*N+j]*vector[j];
         }
     }
-    gettimeofday(&tv2, NULL);
+    gettimeofday(&tv4, NULL);
 
-    if(rank==0){
-        for (int i = 0; i < size; i++) {
-            if(i < (N % size)){ //rank < N mod NP
-                rows = (N/size)+1;
-            }else{
-                rows = N/size;
-            }
-            sendCounts[i]=rows*N;
-            if(i =! 0){
-                cnt += sendCounts[i-1];
-            }
-            displs[i]= cnt * N;
-        }
+    
 
-        //gettimeofday(&tv5, NULL);
-        for (int i = 0; i < size; i++) {
-            MPI_Gatherv(result,rows,MPI_FLOAT,resultAux,sendCounts,displs,MPI_FLOAT,0,MPI_COMM_WORLD);
-        }
-        //gettimeofday(&tv6, NULL);
+    gettimeofday(&tv5, NULL);
+    MPI_Gatherv(result,rows,MPI_FLOAT,resultAux,sendCounts,displs,MPI_FLOAT,0,MPI_COMM_WORLD);
+    gettimeofday(&tv6, NULL);
+        
 
+    iint microsecondsA = (tv2.tv_usec - tv1.tv_usec)+ 1000000 * (tv2.tv_sec - tv1.tv_sec);
+    int microsecondsB = (tv4.tv_usec - tv3.tv_usec)+ 1000000 * (tv4.tv_sec - tv3.tv_sec);
+    int microsecondsC = (tv6.tv_usec - tv5.tv_usec)+ 1000000 * (tv6.tv_sec - tv5.tv_sec);
 
-    }
+    double tiemposComp[size];
+    double tiemposComm[size];
+    double tiempoComp = (double) (microsecondsA + microsecondsC)/1E6;
+    double tiempoComm = (double) microsecondsB/1E6;
 
-    int microsecondsComp = (tv2.tv_usec - tv1.tv_usec)+ 1000000 * (tv2.tv_sec - tv1.tv_sec);//Tiempo computación
-    //int microsecondsCom1 = (tv4.tv_usec - tv3.tv_usec)+ 1000000 * (tv4.tv_sec - tv3.tv_sec);//Tiempo comunicación
-    //int microsecondsCom2 = (tv5.tv_usec - tv6.tv_usec)+ 1000000 * (tv5.tv_sec - tv6.tv_sec);//Tiempo comunicación
-    //int tiempoComp = micrisecondsCom1 + microsecondsCom2;
+    //recolecta en un array todos los tiempos de computacion y en otro array todos los tiempos de comunicacion
+    MPI_Gather(&tiempoComputacion , 1, MPI_DOUBLE, &tiemposComp[rank], 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Gather(&tiempoComunicacion , 1, MPI_DOUBLE, &tiemposComm[rank], 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
 
     /*Display result */
@@ -109,8 +102,9 @@ int main(int argc, char *argv[] ) {
             printf(" %f \t ",resultAux[i]);
         }
     } else {
-        printf ("Time (seconds) = %lf\n", (double) microsecondsComp/1E6);
-        //printf ("Time (seconds) = %lf\n", (double) tiempoComp/1E6);
+        for(i = 0; i<size; i++){
+            fprintf (stderr, "(Rank: %d) Time Computing (seconds) = %lf  Time Comunicating (seconds) = %lf\n", i, tiemposComp[i], tiemposComm[i]);
+        }
     }
 
     free(matrix);
