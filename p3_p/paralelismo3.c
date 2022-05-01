@@ -22,19 +22,20 @@ int main(int argc, char *argv[] ) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-   float *matrix,*vector,*result,**matrixAux,*resultAux;
+   float *matrix,*vector,*result,*matrixAux,*resultAux;
    int  *sendCounts, *displs;
 
+    
+    matrixAux = malloc(N * ((N/size)+(N%size)) * sizeof (float)); //Trozos de matriz
+    vector = malloc(N*sizeof (float));
+    resultAux = malloc(N*sizeof (float));//Vector resultado completo
+
+    matrix = malloc(N*N*sizeof (float));//Matriz
+    result = malloc(((N/size)+(N%size)) * sizeof (float));//Trozos del vector resultado
+    sendCounts = malloc(size*sizeof (int ));
+    displs = malloc(size*sizeof (int ));
 
     if (rank == 0){
-        matrix =  (float  *)malloc(N*N*sizeof (float));//Matriz
-        matrixAux = (float  *)malloc(N*(N/size)*sizeof (float)); //Trozos de matriz
-        vector = malloc(N*sizeof (float));
-        result = malloc((N/size)*sizeof (float));//Trozos del vector resultado
-        resultAux = malloc(N*sizeof (float));//Vector resultado completo
-        sendCounts = malloc(size*sizeof (int ));
-        displs = malloc(size*sizeof (int ));
-
         /* Initialize Matrix and Vector */
         for(i=0;i<N;i++) {
             vector[i] = i;
@@ -42,14 +43,15 @@ int main(int argc, char *argv[] ) {
                 matrix[i*N+j] = i+j;
             }
         }
-        
     }
 
+    
+
     for (int i = 0; i < size; i++) {
-        if(i < (N % rank)){ //rank < N mod NP
-            rows = (N/rank)+1;
+        if(i < (N % size)){ //rank < N mod NP   i=0 10%3=1  0<1 si   i=1 10%3=1 1<1  no   i=2  10%3=1  2<1  no
+            rows = (N/size)+1;                   //rows= 4           //rows=3              //rows=3
         }else{
-            rows = N/rank;
+            rows = N/size;
         }
         sendCounts[i]=rows*N;
         if(i =! 0){
@@ -67,7 +69,7 @@ int main(int argc, char *argv[] ) {
 
     gettimeofday(&tv3, NULL);
     //Modelizar
-    for(i=0;i<N/;i++) {//i hasta N/size
+    for(i=0;i<((N/size)+(N%size));i++) {//i hasta N/size
         result[i]=0;
         for(j=0;j<N;j++) {
             result[i] += matrixAux[i*N+j]*vector[j];
@@ -82,7 +84,7 @@ int main(int argc, char *argv[] ) {
     gettimeofday(&tv6, NULL);
         
 
-    iint microsecondsA = (tv2.tv_usec - tv1.tv_usec)+ 1000000 * (tv2.tv_sec - tv1.tv_sec);
+    int microsecondsA = (tv2.tv_usec - tv1.tv_usec)+ 1000000 * (tv2.tv_sec - tv1.tv_sec);
     int microsecondsB = (tv4.tv_usec - tv3.tv_usec)+ 1000000 * (tv4.tv_sec - tv3.tv_sec);
     int microsecondsC = (tv6.tv_usec - tv5.tv_usec)+ 1000000 * (tv6.tv_sec - tv5.tv_sec);
 
@@ -92,8 +94,8 @@ int main(int argc, char *argv[] ) {
     double tiempoComm = (double) microsecondsB/1E6;
 
     //recolecta en un array todos los tiempos de computacion y en otro array todos los tiempos de comunicacion
-    MPI_Gather(&tiempoComputacion , 1, MPI_DOUBLE, &tiemposComp[rank], 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Gather(&tiempoComunicacion , 1, MPI_DOUBLE, &tiemposComm[rank], 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Gather(&tiempoComp, 1, MPI_DOUBLE, &tiemposComp[rank], 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Gather(&tiempoComm , 1, MPI_DOUBLE, &tiemposComm[rank], 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
 
     /*Display result */
