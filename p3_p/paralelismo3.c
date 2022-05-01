@@ -62,7 +62,7 @@ int main(int argc, char *argv[] ) {
 
     //1er tiempo de comunicación
     gettimeofday(&tv1, NULL);
-    MPI_Scatterv(matrix, sendCounts, displs, MPI_FLOAT, matrixAux, rows*N, MPI_FLOAT, 0, MPI_COMM_WORLD);
+    MPI_Scatterv(matrix, sendCounts, displs, MPI_FLOAT, matrixAux, sendCounts[rank], MPI_FLOAT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&vector, N, MPI_FLOAT, 0, MPI_COMM_WORLD);
     gettimeofday(&tv2, NULL);
 
@@ -77,10 +77,22 @@ int main(int argc, char *argv[] ) {
     }
     gettimeofday(&tv4, NULL);
 
+    for (int i = 0; i < size; i++) {
+        if(i < (N % size)){ //rank < N mod NP   i=0 10%3=1  0<1 si   i=1 10%3=1 1<1  no   i=2  10%3=1  2<1  no
+            rows = (N/size)+1;                   //rows= 4           //rows=3              //rows=3
+        }else{
+            rows = N/size;
+        }
+        sendCounts[i]=rows;
+        if(i =! 0){
+            cnt += sendCounts[i-1];
+        }
+        displs[i]= cnt;
+    }
     
 
     gettimeofday(&tv5, NULL);
-    MPI_Gatherv(result,rows,MPI_FLOAT,resultAux,sendCounts,displs,MPI_FLOAT,0,MPI_COMM_WORLD);
+    MPI_Gatherv(result,rows,MPI_FLOAT,resultAux,sendCounts[rank],displs[rank],MPI_FLOAT,0,MPI_COMM_WORLD);
     gettimeofday(&tv6, NULL);
         
 
