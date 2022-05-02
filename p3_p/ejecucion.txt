@@ -1,0 +1,8 @@
+DEBUG = 1 -> se imprime el resultAux
+DEBUG = 0 -> se printean los tiempos de comunicación y computación
+
+mpicc  paralelismo3.c -o p3
+mpirun -np 2 ./p3 > salida.txt
+gcc -Wall p3Sec.c -o p3Sec
+./p3Sec > salidaSec.txt
+diff salida.txt salidaSec.txt -> compara la salida del code secuencial y paralelo, si no sale nada es que está bien
